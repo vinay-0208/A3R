@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AndroidManifest.xml for A3R — Affect-Adaptive AR
+  
+  This file is placed in unity_project/Assets/Plugins/Android/AndroidManifest.xml
+  Unity merges this with the auto-generated manifest during the Android build.
+  
+  Key permissions declared here:
+    - CAMERA: required for both AR Foundation (rear camera tracking) and
+              FaceLandmarkBridge (front camera affect inference)
+    - AR required feature: ensures device has ARCore support (filters on Play Store)
+  
+  Do NOT add READ_EXTERNAL_STORAGE/WRITE_EXTERNAL_STORAGE — SessionLogger uses
+  Application.persistentDataPath which requires no extra permissions on Android 9+.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools"
+          package="com.a3rproject.affectivear">
+
+    <!-- ── Camera permission (rear + front) ──────────────────────────────── -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- ── ARCore feature declaration ────────────────────────────────────── -->
+    <!-- android:required="true" means app will not appear on non-ARCore devices -->
+    <uses-feature android:name="android.hardware.camera.ar"
+                  android:required="true" />
+
+    <!-- ── Minimum hardware requirements ─────────────────────────────────── -->
+    <!-- Front-facing camera required for affect inference -->
+    <uses-feature android:name="android.hardware.camera.front"
+                  android:required="true" />
+    <uses-feature android:name="android.hardware.camera"
+                  android:required="true" />
+
+    <!-- ── Application block ─────────────────────────────────────────────── -->
+    <application
+        android:label="A3R"
+        android:icon="@mipmap/app_icon"
+        android:theme="@style/UnityThemeSelector"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        tools:replace="android:allowBackup">
+
+        <!-- ARCore metadata — required for AR Foundation ARCore plugin -->
+        <meta-data
+            android:name="com.google.ar.core"
+            android:value="required" />
+
+        <!-- Unity activity -->
+        <activity
+            android:name="com.unity3d.player.UnityPlayerActivity"
+            android:theme="@style/UnityThemeSelector"
+            android:label="A3R"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize|fontScale|layoutDirection|density"
+            android:launchMode="singleTask"
+            android:screenOrientation="fullSensor"
+            android:hardwareAccelerated="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data android:name="unityplayer.UnityActivity"
+                       android:value="true" />
+        </activity>
+
+    </application>
+
+</manifest>

@@ -1,0 +1,10 @@
+# A3R Python Dependencies (offline calibration tooling only — never shipped in mobile app)
+# Always install inside .venv: python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
+# NOTE: scikit-learn is INTENTIONALLY ABSENT — this project does threshold calibration, not model training.
+
+mediapipe==0.10.14
+opencv-python==4.10.0.84
+pandas==2.2.3
+numpy==1.26.4
+matplotlib==3.9.2
+jupyter==1.1.1

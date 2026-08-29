@@ -1,0 +1,48 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam activity {
+  BackgroundColor #DCE6F1
+  BorderColor #2E5395
+  FontColor #1F3864
+  FontName Calibri
+  FontSize 13
+  DiamondBackgroundColor #FFF2CC
+  DiamondBorderColor #BF8F00
+  StartColor #1F3864
+  EndColor #1F3864
+}
+skinparam defaultFontName Calibri
+skinparam ArrowColor #595959
+
+start
+:Detect printed reference image\n(ARTrackedImageManager);
+:Anchor content root to tracked image pose;
+:Render current instruction step;
+repeat
+  :Capture front-camera frame\n(every ~200 ms);
+  :Extract 468-pt facial landmarks\n(MediaPipe Face Landmarker);
+  :Derive geometric features\n(brow-furrow, eye-aspect ratio,\nmouth-corner tension);
+  :Compute confusion / frustration /\nengagement scores\n(fixed rule-based formula);
+  if (sustained score > threshold T\nfor dwell-time D?) then (yes)
+    :Trigger Adaptation Controller;
+    if (current step complexity\ncan be reduced?) then (yes)
+      :Simplify step into sub-steps\n+ inject visual cue;
+    else (no)
+      :Insert contextual hint /\nslow instructional pacing;
+    endif
+    :Log adaptation event\n+ affect trajectory;
+  else (no)
+    :Continue at normal pacing;
+  endif
+  :Check task completion\n/ user "next step" input;
+  :Re-check marker still tracked;
+  if (marker tracking lost?) then (yes)
+    :Pause instruction + adaptation\nuntil marker re-detected;
+  else (no)
+  endif
+repeat while (task not complete?) is (yes)
+->no;
+:End session;
+:Generate session report\n(affect trajectory + adaptation log);
+stop
+@enduml

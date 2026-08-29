@@ -1,0 +1,184 @@
+{
+  "task_id": "led_blink_circuit",
+  "task_name": "Build a Blinking-LED Circuit on Arduino Uno",
+  "description": "Assemble a blinking LED circuit on a breadboard using an Arduino Uno, one LED, one 220Ω resistor, and jumper wires. Upload the Blink sketch and verify the LED blinks at 1-second intervals.",
+  "components": [
+    "Arduino Uno",
+    "Breadboard (half-size or full-size)",
+    "1× LED (standard 5mm, any color)",
+    "1× 220Ω resistor",
+    "2–3× male-to-male jumper wires",
+    "USB-B cable"
+  ],
+  "steps": [
+    {
+      "id": "place_breadboard",
+      "step_number": 1,
+      "title": "Place the Breadboard",
+      "instruction": "Place the breadboard flat on the workbench beside the reference marker card.",
+      "detail": "Orient so the row numbers are visible, with power rails (red/blue lines) at top and bottom. The breadboard should be directly next to the printed marker so both are in the camera's view.",
+      "highlight_component": "breadboard",
+      "highlight_color": [0.2, 0.8, 1.0],
+      "ar_arrow_target": "breadboard_center",
+      "common_errors": [
+        "Breadboard oriented sideways — columns should run vertically",
+        "Marker card not visible alongside breadboard"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Just place the flat white board on the table with the numbered rows visible.",
+        "InjectCue": "The breadboard is the long white rectangular board with small holes in it.",
+        "SlowPace": "Take a moment to orient the breadboard — rows run left to right, columns run top to bottom.",
+        "InsertHint": "You should see letters A–E on the left side and F–J on the right side of each row."
+      }
+    },
+    {
+      "id": "insert_resistor",
+      "step_number": 2,
+      "title": "Insert the 220Ω Resistor",
+      "instruction": "Insert the 220Ω resistor into the breadboard.",
+      "detail": "Place one lead in row 10, column E. Place the other lead in row 14, column E. Both leads must be firmly seated — you should feel them snap into place. The resistor color bands should read: Red-Red-Brown-Gold (220Ω).",
+      "highlight_component": "resistor",
+      "highlight_color": [1.0, 0.9, 0.0],
+      "ar_arrow_target": "resistor_slot_row10_colE",
+      "common_errors": [
+        "Leads not in the same column (must both be in column E)",
+        "Wrong rows (must span rows 10 to 14)",
+        "Lead not fully inserted (should be flush with board surface)"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Step 2a: Count to row 10. Step 2b: Push one wire into the hole at row 10 column E. Step 2c: Push the other wire into row 14 column E.",
+        "InjectCue": "Look for the hole highlighted in yellow — that is where the first resistor lead goes.",
+        "SlowPace": "Count the rows carefully: 1, 2, 3... 10. Insert the first lead here. Then count 4 more rows down to 14 for the second lead.",
+        "InsertHint": "The resistor color code Red-Red-Brown-Gold confirms it is 220Ω. Any orientation is fine — resistors have no polarity."
+      }
+    },
+    {
+      "id": "insert_led",
+      "step_number": 3,
+      "title": "Insert the LED (Correct Polarity)",
+      "instruction": "Insert the LED into the breadboard with CORRECT polarity.",
+      "detail": "CRITICAL: The LONG leg (anode, +) goes in row 14, column D. The SHORT leg (cathode, –) goes in row 15, column D. Getting this backwards will prevent the LED from lighting. The long leg connects to the same row (14) as the resistor, completing the circuit.",
+      "highlight_component": "led",
+      "highlight_color": [1.0, 0.3, 0.3],
+      "ar_arrow_target": "led_slot_row14_colD",
+      "common_errors": [
+        "LED polarity reversed — short leg (cathode) in row 14 instead of long leg",
+        "LED not in column D (must be adjacent to resistor at column E in same row)",
+        "Both legs in same row (must span rows 14 and 15)"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Step 3a: Hold the LED. Notice one leg is longer — that is the anode (+). Step 3b: Put the LONG leg in row 14 column D. Step 3c: Put the SHORT leg in row 15 column D.",
+        "InjectCue": "See the highlighted arrow — the LONG leg goes in the top hole, SHORT leg in the hole directly below it.",
+        "SlowPace": "Polarity matters here. Long leg = positive = row 14 column D. Short leg = negative = row 15 column D. Double-check before continuing.",
+        "InsertHint": "If you are unsure which leg is which: the longer leg is the anode (+). There is also a flat edge on the LED bulb base next to the cathode (–) leg."
+      }
+    },
+    {
+      "id": "wire_resistor_to_pin13",
+      "step_number": 4,
+      "title": "Wire Pin 13 to Resistor",
+      "instruction": "Connect a jumper wire from Arduino digital pin 13 to the resistor.",
+      "detail": "One end of the jumper wire goes into Arduino digital pin 13 (labeled '13' on the board, in the row of digital pins). The other end goes into breadboard row 10, column A (the same row as the first resistor lead, but on the opposite side of the center gap).",
+      "highlight_component": "jumper_wire",
+      "highlight_color": [0.3, 1.0, 0.3],
+      "ar_arrow_target": "arduino_pin13",
+      "common_errors": [
+        "Using the wrong pin number (must be pin 13, not 12 or A0)",
+        "Breadboard end in wrong row (must match the row with the resistor lead)",
+        "Wire not fully seated in either connector"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Step 4a: Find the pin labeled '13' on the Arduino — it is in the upper row of pins. Step 4b: Push one end of a jumper wire into pin 13. Step 4c: Push the other end into breadboard row 10 column A.",
+        "InjectCue": "The Arduino pin 13 is highlighted in green. Row 10 on the breadboard is also highlighted.",
+        "SlowPace": "Pin 13 controls the LED. Find it by reading the labels printed on the Arduino board. Then run the wire from there to row 10 on the breadboard.",
+        "InsertHint": "Columns A–E and F–J are on opposite sides of the breadboard's central gap. Row 10 column A is the leftmost hole in row 10."
+      }
+    },
+    {
+      "id": "wire_gnd",
+      "step_number": 5,
+      "title": "Wire GND to LED Cathode",
+      "instruction": "Connect a jumper wire from any Arduino GND pin to the LED cathode row.",
+      "detail": "One end goes into any Arduino GND pin (there are 3 GND pins — look for the one labeled 'GND' near the digital pins). The other end goes into breadboard row 15, column A — the same row as the LED's short (cathode) leg.",
+      "highlight_component": "jumper_wire",
+      "highlight_color": [0.1, 0.1, 0.9],
+      "ar_arrow_target": "arduino_gnd",
+      "common_errors": [
+        "Connecting to analog GND pin instead of digital GND",
+        "Breadboard end in wrong row (must be row 15 — the cathode row)",
+        "Confused by multiple GND pins — any GND will work"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Step 5a: Find the pin labeled 'GND' near pin 13. Step 5b: Push one jumper wire end into GND. Step 5c: Push the other end into row 15 column A.",
+        "InjectCue": "A GND pin is highlighted in blue. Row 15 on the breadboard is also highlighted.",
+        "SlowPace": "Ground (GND) completes the circuit. The wire goes from GND on the Arduino to the row where the LED's short leg is sitting — row 15.",
+        "InsertHint": "Any of the three GND pins on the Arduino will work for this circuit. They are all connected to each other internally."
+      }
+    },
+    {
+      "id": "connect_usb",
+      "step_number": 6,
+      "title": "Connect Arduino to Computer via USB",
+      "instruction": "Connect the Arduino Uno to a computer using a USB-B cable.",
+      "detail": "Use the USB-B connector on the Arduino (the square connector on the board, not a USB-A port). Connect the other end to a free USB port on the computer. The green power LED on the Arduino should light up immediately when connected.",
+      "highlight_component": "arduino_uno",
+      "highlight_color": [0.8, 0.8, 0.8],
+      "ar_arrow_target": "arduino_usb_port",
+      "common_errors": [
+        "Using wrong cable type (must be USB-B, not micro-USB)",
+        "Power LED not lighting up (cable not fully seated or USB port issue)",
+        "Computer does not recognise Arduino (driver may be needed)"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Step 6a: Find the large square USB port on the Arduino board. Step 6b: Connect the matching end of the USB cable. Step 6c: Connect the other end to your computer.",
+        "InjectCue": "The USB connector port on the Arduino is highlighted. It is the square/rectangular port near the DC barrel jack.",
+        "SlowPace": "Once connected, look for the green LED on the Arduino board to confirm it has power. If the LED does not light, try a different USB port.",
+        "InsertHint": "Arduino Uno uses a USB-B cable — the same type as older printers. One end is flat (goes to computer), one end is square (goes to Arduino)."
+      }
+    },
+    {
+      "id": "upload_blink_sketch",
+      "step_number": 7,
+      "title": "Upload the Blink Sketch",
+      "instruction": "Upload the Arduino Blink example sketch to the board.",
+      "detail": "Open Arduino IDE. Go to File → Examples → 01.Basics → Blink. Verify the correct board (Tools → Board → Arduino Uno) and port (Tools → Port → COMx) are selected. Click the Upload button (right arrow icon). Wait for 'Done uploading.' message in the status bar.",
+      "highlight_component": null,
+      "highlight_color": null,
+      "ar_arrow_target": null,
+      "common_errors": [
+        "Wrong board selected in Arduino IDE (must be Arduino Uno)",
+        "Wrong COM port selected (try each available port)",
+        "Arduino IDE not installed — download from arduino.cc",
+        "Upload fails with permission error — close Serial Monitor first"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Step 7a: Open Arduino IDE on your computer. Step 7b: Go to File > Examples > 01.Basics > Blink. Step 7c: Check Tools menu for correct board and port. Step 7d: Click the Upload arrow button.",
+        "InjectCue": "A screenshot of the correct Arduino IDE menu path is shown above.",
+        "SlowPace": "After opening the Blink example, check Tools menu: Board should say Arduino Uno. Port should show a COM port (Windows) or /dev/tty (Mac/Linux). Then click Upload.",
+        "InsertHint": "If you see multiple COM ports, disconnect and reconnect the USB cable — whichever port appears/disappears is the Arduino's port."
+      }
+    },
+    {
+      "id": "verify_blink",
+      "step_number": 8,
+      "title": "Verify LED Blinking",
+      "instruction": "Observe the LED blinking on and off at 1-second intervals.",
+      "detail": "After a successful upload, the LED on the breadboard should blink: ON for 1 second, OFF for 1 second, repeating. The built-in LED on pin 13 of the Arduino board should also blink in sync. If the LED does not blink, check the connections — most commonly a polarity error on the LED (step 3).",
+      "highlight_component": "led",
+      "highlight_color": [1.0, 1.0, 0.0],
+      "ar_arrow_target": "led_position",
+      "common_errors": [
+        "LED does not blink at all — check LED polarity (most common)",
+        "LED stays on constantly — check resistor value or breadboard connections",
+        "LED is very dim — check resistor is 220Ω not 2.2kΩ",
+        "Blinking is too fast/slow — re-upload the sketch (code may have been changed)"
+      ],
+      "adaptation_hints": {
+        "SimplifyStep": "Does the LED blink on and off? If yes, you are done! If not: Step 8a: Check the LED polarity — pull it out and flip it if the long leg was in the bottom row. Step 8b: Check all breadboard connections are fully seated.",
+        "InjectCue": "The LED location is highlighted. Watch it carefully — it should blink approximately once per second.",
+        "SlowPace": "If the LED is not blinking, the most likely cause is reversed LED polarity (step 3). The LED only allows current in one direction. Try flipping the LED so the long leg is in row 14.",
+        "InsertHint": "A correctly wired circuit: long leg (row 14) → resistor (rows 10-14) → jumper wire → pin 13 → Arduino. Short leg (row 15) → jumper wire → GND → Arduino."
+      }
+    }
+  ]
+}

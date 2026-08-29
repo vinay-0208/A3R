@@ -1,0 +1,9 @@
+{
+  "T_confusion": 0.45,
+  "T_frustration": 0.5,
+  "D_seconds": 2.0,
+  "precision": 1.0,
+  "recall": 0.9907,
+  "f_beta": 0.9981,
+  "calibration_note": "Values calibrated against DAiSEE subset using rule-based confusion score. Update PROJECT_PLAN.md and memory.md with these values."
+}

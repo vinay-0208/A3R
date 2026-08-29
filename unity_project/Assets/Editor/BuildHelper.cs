@@ -1,0 +1,151 @@
+using UnityEngine;
+using UnityEditor;
+using UnityEditor.Build.Reporting;
+using System;
+using System.IO;
+
+namespace A3R.Editor
+{
+    /// <summary>
+    /// BuildHelper — Editor menu for automated Android APK/AAB builds of the A3R project.
+    ///
+    /// Usage: In Unity Editor, click "A3R" menu → "Build Android APK (Debug)" or "Build Android AAB (Release)".
+    ///
+    /// All build settings are locked here to prevent accidental mis-configuration:
+    ///   - Target platform: Android only
+    ///   - Min SDK: 28 (AR Foundation requirement)
+    ///   - Architecture: ARM64 only
+    ///   - ARCore: enabled
+    ///   - Output goes to build/android/ in the project root.
+    /// </summary>
+    public static class BuildHelper
+    {
+        private const string MENU_ROOT = "A3R/";
+        private const string COMPANY   = "A3R Research Project";
+        private const string PRODUCT   = "A3R Affect-Adaptive AR";
+        private const string BUNDLE_ID  = "com.a3rproject.affectivear";
+
+        // Scenes to include — must match what's in Build Settings
+        private static readonly string[] BUILD_SCENES = new[]
+        {
+            "Assets/Scenes/A3R_Main.unity",
+        };
+
+        // ── Menu Items ───────────────────────────────────────────────────────────
+        [MenuItem(MENU_ROOT + "Build Android APK (Debug)")]
+        public static void BuildAndroidDebug()
+        {
+            string outputPath = GetOutputPath("debug", "apk");
+            BuildAndroid(BuildOptions.Development | BuildOptions.AllowDebugging,
+                         outputPath, ".apk");
+        }
+
+        [MenuItem(MENU_ROOT + "Build Android AAB (Release)")]
+        public static void BuildAndroidRelease()
+        {
+            string outputPath = GetOutputPath("release", "aab");
+            // AAB required for Google Play; APK sufficient for research sideloading
+            EditorUserBuildSettings.buildAppBundle = true;
+            BuildAndroid(BuildOptions.None, outputPath, ".aab");
+        }
+
+        [MenuItem(MENU_ROOT + "Build Android APK (ADB Install)")]
+        public static void BuildAndroidAdbInstall()
+        {
+            string outputPath = GetOutputPath("adb", "apk");
+            BuildAndroid(BuildOptions.Development | BuildOptions.AutoRunPlayer,
+                         outputPath, ".apk");
+        }
+
+        [MenuItem(MENU_ROOT + "Verify Build Settings")]
+        public static void VerifyBuildSettings()
+        {
+            ApplyAndroidBuildSettings();
+            Debug.Log("[BuildHelper] Android build settings applied and verified.");
+            EditorUtility.DisplayDialog("A3R Build Settings",
+                $"Build settings locked to Android:\n" +
+                $"  Bundle ID: {BUNDLE_ID}\n" +
+                $"  Min SDK: 28\n" +
+                $"  Architecture: ARM64\n" +
+                $"  Scenes: {string.Join(", ", BUILD_SCENES)}\n" +
+                $"\nSettings verified.", "OK");
+        }
+
+        // ── Build Implementation ──────────────────────────────────────────────────
+        private static void BuildAndroid(BuildOptions options, string outputPath, string ext)
+        {
+            ApplyAndroidBuildSettings();
+
+            // Ensure output directory exists
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+
+            Debug.Log($"[BuildHelper] Starting build → {outputPath}");
+
+            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            {
+                scenes           = BUILD_SCENES,
+                locationPathName = outputPath,
+                target           = BuildTarget.Android,
+                options          = options,
+            });
+
+            var summary = report.summary;
+            if (summary.result == BuildResult.Succeeded)
+            {
+                Debug.Log($"[BuildHelper] ✅ Build succeeded in {summary.totalTime.TotalSeconds:F1}s — {outputPath}");
+                EditorUtility.DisplayDialog("A3R Build Complete",
+                    $"Build succeeded!\n\nOutput: {outputPath}\nTime: {summary.totalTime.TotalSeconds:F0}s\nSize: {summary.totalSize / 1048576:F1} MB",
+                    "OK");
+            }
+            else
+            {
+                Debug.LogError($"[BuildHelper] ❌ Build FAILED: {summary.result}");
+                EditorUtility.DisplayDialog("A3R Build FAILED",
+                    $"Build failed with result: {summary.result}\n\nCheck the Console for errors.",
+                    "OK");
+            }
+        }
+
+        private static void ApplyAndroidBuildSettings()
+        {
+            // Switch platform to Android (no-op if already Android)
+            if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
+            {
+                EditorUserBuildSettings.SwitchActiveBuildTargetAsync(
+                    BuildTargetGroup.Android, BuildTarget.Android);
+            }
+
+            // Player settings
+            PlayerSettings.companyName = COMPANY;
+            PlayerSettings.productName = PRODUCT;
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, BUNDLE_ID);
+            PlayerSettings.Android.minSdkVersion   = AndroidSdkVersions.AndroidApiLevel28;
+            PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel33;
+            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
+            PlayerSettings.SetApiCompatibilityLevel(BuildTargetGroup.Android,
+                                                    ApiCompatibilityLevel.NET_Unity_4_8);
+            PlayerSettings.colorSpace = ColorSpace.Linear;
+
+            // ARCore
+            PlayerSettings.Android.ARCoreEnabled = true;
+
+            // New Input System
+            PlayerSettings.enableNativePlatformBackendsForNewInputSystem = true;
+
+            // Scenes
+            var editorScenes = new EditorBuildSettingsScene[BUILD_SCENES.Length];
+            for (int i = 0; i < BUILD_SCENES.Length; i++)
+                editorScenes[i] = new EditorBuildSettingsScene(BUILD_SCENES[i], true);
+            EditorBuildSettings.scenes = editorScenes;
+
+            Debug.Log("[BuildHelper] Android build settings applied.");
+        }
+
+        private static string GetOutputPath(string variant, string ext)
+        {
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string root      = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "android"));
+            return Path.Combine(root, $"A3R_{variant}_{timestamp}.{ext}");
+        }
+    }
+}

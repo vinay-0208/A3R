@@ -1,0 +1,59 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam component {
+  BackgroundColor #DCE6F1
+  BorderColor #2E5395
+  FontColor #1F3864
+  FontSize 15
+  FontName Calibri
+}
+skinparam actor {
+  BackgroundColor #FFF2CC
+  BorderColor #BF8F00
+}
+skinparam artifact {
+  BackgroundColor #E2EFDA
+  BorderColor #548235
+  FontColor #375623
+}
+skinparam arrow {
+  Color #595959
+  FontColor #262626
+  FontSize 12
+}
+skinparam ArrowFontName Calibri
+skinparam defaultFontName Calibri
+
+left to right direction
+
+actor "Learner" as User
+artifact "Printed Reference\nImage Marker" as Marker
+
+package "Android AR Device" {
+  [Rear Camera] as WCam
+  [Front Camera] as FCam
+  [AR Image Tracker\n(ARTrackedImageManager,\nAR Foundation / ARCore)] as Tracker
+  [MediaPipe Face\nLandmarker] as MP
+  [Affect Inference Engine\n(Confusion / Frustration /\nEngagement Scoring,\ncalibrated via DAiSEE)] as Affect
+  [Adaptation Controller\n(Threshold T + Dwell-Time D FSM)] as Controller
+  [AR Content Manager] as Content
+  [AR Display / Overlay] as Display
+  [Session Logger] as Logger
+}
+
+User --> FCam
+Marker --> WCam : physically placed\nbeside breadboard
+WCam --> Tracker
+FCam --> MP
+MP --> Affect
+Affect --> Controller : affect scores\n(every 500ms)
+Tracker --> Content : tracked marker pose\n(anchor for all content)
+Content --> Content : current step\n(from led_blink_task.json)
+Controller --> Content : adaptation action\n(simplify / cue / slow / hint)
+Content --> Display
+Controller --> Logger : adaptation events
+Affect --> Logger : affect trajectory
+Display --> User : instructional overlay\nanchored to marker
+
+@enduml
