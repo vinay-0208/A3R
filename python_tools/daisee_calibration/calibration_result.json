@@ -1,9 +1,60 @@
 {
-  "T_confusion": 0.45,
-  "T_frustration": 0.5,
-  "D_seconds": 2.0,
-  "precision": 1.0,
-  "recall": 0.9907,
-  "f_beta": 0.9981,
-  "calibration_note": "Values calibrated against DAiSEE subset using rule-based confusion score. Update PROJECT_PLAN.md and memory.md with these values."
+  "provenance": "synthetic_fallback_pilot",
+  "calibration_dataset_description": "Calibrated synthetic fallback pilot distribution simulating DAiSEE ordinal label distributions (N=300)",
+  "T_confusion": 0.4,
+  "T_frustration": 0.4,
+  "D_seconds": 3.0,
+  "train_metrics": {
+    "confusion": {
+      "threshold": 0.4,
+      "dwell_s": 3.0,
+      "precision": 1.0,
+      "recall": 0.9573,
+      "f_beta": 0.9912,
+      "tp": 112,
+      "fp": 0,
+      "fn": 5,
+      "tn": 93
+    },
+    "frustration": {
+      "threshold": 0.4,
+      "dwell_s": 2.5,
+      "precision": 1.0,
+      "recall": 0.9652,
+      "f_beta": 0.9928,
+      "tp": 111,
+      "fp": 0,
+      "fn": 4,
+      "tn": 95
+    }
+  },
+  "validation_metrics": {
+    "confusion": {
+      "threshold": 0.4,
+      "dwell_s": 3.0,
+      "precision": 0.9762,
+      "recall": 0.9762,
+      "f_beta": 0.9762,
+      "tp": 41,
+      "fp": 1,
+      "fn": 1,
+      "tn": 47,
+      "n_clips": 90,
+      "n_positive": 42
+    },
+    "frustration": {
+      "threshold": 0.4,
+      "dwell_s": 2.5,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f_beta": 1.0,
+      "tp": 41,
+      "fp": 0,
+      "fn": 0,
+      "tn": 49,
+      "n_clips": 90,
+      "n_positive": 41
+    }
+  },
+  "calibration_note": "Independently calibrated T_confusion=0.4 and T_frustration=0.4 (D=3.0s) using 70/30 train/val split without ML."
 }

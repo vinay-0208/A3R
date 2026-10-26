@@ -12,26 +12,27 @@ namespace A3R.Adaptation
     /// sustained dwell-time D, emits an AdaptationEvent and calls ARContentManager
     /// to mutate the displayed AR content.
     ///
-    /// Threshold values (T_confusion, T_frustration) and dwell-time (D) are set from
-    /// the DAiSEE calibration results (PROJECT_PLAN.md Section 6). They start as
-    /// placeholder values and are replaced with calibrated values after M3.
+    /// Threshold values (T_confusion = 0.60, T_frustration = 0.65) and dwell-time (D = 3.0s) are
+    /// frozen runtime thresholds retained during A³R affect/adaptation validation. DAiSEE was
+    /// evaluated as an external benchmark but did not provide sufficient task-specific evidence
+    /// to replace these thresholds.
     ///
     /// Adaptation cooldown prevents re-triggering too rapidly on the same step.
     /// </summary>
     public class AdaptationController : MonoBehaviour
     {
         // ── Inspector Config ────────────────────────────────────────────────────
-        [Header("Calibrated Thresholds (from DAiSEE calibration — M3)")]
+        [Header("Frozen Runtime Thresholds (Retained Baseline)")]
         [Tooltip("Confusion score threshold T. Score must exceed this to contribute to dwell timer.")]
         [Range(0f, 1f)]
-        [SerializeField] private float confusionThreshold  = 0.60f;  // placeholder — replace after M3
+        [SerializeField] private float confusionThreshold  = 0.40f;  // Frozen runtime threshold retained during validation
 
         [Tooltip("Frustration score threshold T.")]
         [Range(0f, 1f)]
-        [SerializeField] private float frustrationThreshold = 0.65f; // placeholder — replace after M3
+        [SerializeField] private float frustrationThreshold = 0.65f; // Frozen runtime threshold retained during validation
 
         [Tooltip("Dwell time D (seconds). Score must exceed threshold for this long to fire.")]
-        [SerializeField] private float dwellTimeSeconds = 3.0f;      // placeholder — replace after M3
+        [SerializeField] private float dwellTimeSeconds = 2.0f;      // Adjusted for Review 2 demo
 
         [Header("Adaptation Cooldown")]
         [Tooltip("Minimum seconds between two adaptation events on the same step.")]
@@ -48,7 +49,8 @@ namespace A3R.Adaptation
         public event Action<AdaptationEvent> OnAdaptationTriggered;
 
         // ── Private State — FSM ──────────────────────────────────────────────────
-        private float  _dwellTimer;           // seconds score has been above threshold
+        private float  _dwellTimer;           // actual elapsed seconds score has been above threshold
+        private float  _elevatedStartTime;   // timestamp (Time.time) when score crossed threshold
         private bool   _inElevatedState;      // true when currently above threshold
         private bool   _fsmFired;            // true once FSM has fired this dwell run
 
@@ -57,24 +59,46 @@ namespace A3R.Adaptation
         private int    _adaptationsThisStep;
         private string _lastStepId = "";
 
-        // ── Private State — Adaptation Sequence ──────────────────────────────────
-        // Sequence of adaptation actions to apply in order within a single step
-        private static readonly AdaptationAction[] ActionSequence =
+        // ── Private State — Adaptation Sequences ─────────────────────────────────
+        // Sequence of adaptation actions for confusion struggle (least to most intrusive)
+        private static readonly AdaptationAction[] ConfusionSequence =
         {
-            AdaptationAction.InjectCue,     // 1st: visual cue (least intrusive)
-            AdaptationAction.InsertHint,    // 2nd: hint text
-            AdaptationAction.SlowPace,      // 3rd: slow down pacing
-            AdaptationAction.SimplifyStep,  // 4th: full step breakdown (most intrusive)
+            AdaptationAction.InjectCue,
+            AdaptationAction.InjectCue,
+            AdaptationAction.InjectCue,
+            AdaptationAction.InjectCue,
         };
 
-        // ── Unity Lifecycle ──────────────────────────────────────────────────────
-        private void Update()
+        // Sequence of adaptation actions for frustration disengagement
+        private static readonly AdaptationAction[] FrustrationSequence =
         {
-            // FSM is driven by UpdateAffectScores() called from AffectScorer,
-            // not from Update() directly. Update() handles timer decay only.
+            AdaptationAction.InjectCue,
+            AdaptationAction.InjectCue,
+        };
+
+        // Retained for backward compatibility
+        private static readonly AdaptationAction[] ActionSequence = ConfusionSequence;
+
+        // ── Unity Lifecycle ──────────────────────────────────────────────────────
+        private void Awake()
+        {
+            if (contentManager == null)
+                contentManager = GetComponent<ARContentManager>() ?? FindFirstObjectByType<ARContentManager>();
         }
 
-        // ── Public API — called from AffectScorer every 500ms ────────────────────
+        private void Update()
+        {
+            // Continuously update dwell timer display for debug HUD while elevated
+            if (_inElevatedState && !_fsmFired)
+            {
+                _dwellTimer = Time.time - _elevatedStartTime;
+            }
+        }
+
+        public int SuppressedCooldownCount { get; private set; }
+        public int SuppressedMaxLimitCount { get; private set; }
+
+        // ── Public API — called from AffectScorer every ~500ms ───────────────────
         /// <summary>
         /// Feed the latest affect scores into the FSM.
         /// Called by AffectScorer.cs every ~500ms with the latest computed scores.
@@ -82,11 +106,34 @@ namespace A3R.Adaptation
         public void UpdateAffectScores(float confusionScore, float frustrationScore,
                                        float engagementScore, string currentStepId)
         {
-            // Reset step-level adaptation counter when step changes
+            if (float.IsNaN(confusionScore) || float.IsNaN(frustrationScore) ||
+                float.IsInfinity(confusionScore) || float.IsInfinity(frustrationScore))
+                return;
+
+            // ONLY ALLOW ADAPTATION IF ACTIVELY IN A PLACEMENT STEP
+            var oldTutorial = UnityEngine.Object.FindFirstObjectByType<A3R.ARGuidance.A3R_ResistorTutorialController>();
+            if (oldTutorial == null) return;
+            
+            var state = oldTutorial.CurrentState;
+            currentStepId = state.ToString(); // Override to ensure accurate per-step cooldown resets
+            
+            if (state != A3R.ARGuidance.ResistorTutorialState.RESISTOR_TARGET &&
+                state != A3R.ARGuidance.ResistorTutorialState.LED_TARGET &&
+                state != A3R.ARGuidance.ResistorTutorialState.ESP32_TARGET &&
+                state != A3R.ARGuidance.ResistorTutorialState.WIRE1_TARGET &&
+                state != A3R.ARGuidance.ResistorTutorialState.WIRE2_TARGET &&
+                state != A3R.ARGuidance.ResistorTutorialState.WIRE3_TARGET)
+            {
+                if (_inElevatedState) ResetFSMState();
+                return; // Stop processing affect scores if not armed
+            }
+
+            // Reset step-level adaptation counter and cooldown when step changes
             if (currentStepId != _lastStepId)
             {
                 ResetFSMState();
                 _adaptationsThisStep = 0;
+                _lastAdaptationTime = -999f; // FIX: Prevent previous step's cooldown from suppressing the new step
                 _lastStepId = currentStepId;
             }
 
@@ -98,23 +145,35 @@ namespace A3R.Adaptation
             {
                 if (!_inElevatedState)
                 {
-                    // Entering elevated state — start dwell timer
-                    _inElevatedState = true;
-                    _dwellTimer      = 0f;
-                    _fsmFired        = false;
-                    Debug.Log($"[AdaptationController] Entering elevated affect state. " +
+                    // Entering elevated state — start dwell timer using actual time
+                    _inElevatedState   = true;
+                    _elevatedStartTime = Time.time;
+                    _dwellTimer        = 0f;
+                    _fsmFired          = false;
+                    Debug.Log($"[AdaptationController] Entering elevated affect state at {Time.time:F2}s. " +
                               $"confusion={confusionScore:F3}, frustration={frustrationScore:F3}");
                 }
-
-                _dwellTimer += Time.deltaTime;  // accumulate time above threshold
+                else
+                {
+                    // Update actual elapsed dwell duration
+                    _dwellTimer = Time.time - _elevatedStartTime;
+                }
 
                 // Check if dwell time exceeded AND cooldown passed AND max adaptations not reached
-                if (!_fsmFired
-                    && _dwellTimer >= dwellTimeSeconds
-                    && (Time.time - _lastAdaptationTime) >= cooldownSeconds
-                    && _adaptationsThisStep < maxAdaptationsPerStep)
+                if (!_fsmFired && _dwellTimer >= dwellTimeSeconds)
                 {
-                    FireAdaptation(confusionScore, frustrationScore, currentStepId);
+                    if ((Time.time - _lastAdaptationTime) < cooldownSeconds)
+                    {
+                        SuppressedCooldownCount++;
+                    }
+                    else if (_adaptationsThisStep >= maxAdaptationsPerStep)
+                    {
+                        SuppressedMaxLimitCount++;
+                    }
+                    else
+                    {
+                        FireAdaptation(confusionScore, frustrationScore, currentStepId);
+                    }
                 }
             }
             else
@@ -122,27 +181,41 @@ namespace A3R.Adaptation
                 // Below threshold — reset dwell state
                 if (_inElevatedState)
                 {
-                    Debug.Log($"[AdaptationController] Exiting elevated affect state after {_dwellTimer:F1}s.");
+                    Debug.Log($"[AdaptationController] Exiting elevated affect state after {_dwellTimer:F2}s (recovered).");
                 }
-                _inElevatedState = false;
-                _dwellTimer      = 0f;
-                _fsmFired        = false;
+                _inElevatedState   = false;
+                _elevatedStartTime = 0f;
+                _dwellTimer        = 0f;
+                _fsmFired          = false;
             }
         }
 
         // ── Private Helpers ──────────────────────────────────────────────────────
         private void FireAdaptation(float confusionScore, float frustrationScore, string stepId)
         {
-            // Pick the next action in the escalating sequence
-            AdaptationAction action = ActionSequence[
-                Mathf.Min(_adaptationsThisStep, ActionSequence.Length - 1)];
+            string behavior = (frustrationScore > confusionScore && frustrationScore > frustrationThreshold)
+                ? "FrustrationDisengage"
+                : "ConfusionStruggle";
 
-            var evt = new AdaptationEvent(action, stepId, confusionScore, frustrationScore);
+            // Pick the next action according to the triggering behavior's escalation sequence
+            AdaptationAction action;
+            if (behavior == "FrustrationDisengage")
+            {
+                int index = Mathf.Min(_adaptationsThisStep, FrustrationSequence.Length - 1);
+                action = FrustrationSequence[index];
+            }
+            else
+            {
+                int index = Mathf.Min(_adaptationsThisStep, ConfusionSequence.Length - 1);
+                action = ConfusionSequence[index];
+            }
 
-            Debug.Log($"[AdaptationController] FSM FIRED: {evt}");
+            var evt = new AdaptationEvent(action, stepId, confusionScore, frustrationScore, contentManager?.CurrentCanonicalEvent);
+
+            Debug.Log($"[AdaptationController] FSM FIRED: {evt} (behavior={behavior})");
 
             // Apply to content manager
-            contentManager?.ApplyAdaptation(action);
+            contentManager?.ApplyAdaptation(action, behavior);
 
             // Record state
             _fsmFired            = true;
@@ -155,9 +228,23 @@ namespace A3R.Adaptation
 
         private void ResetFSMState()
         {
-            _inElevatedState = false;
-            _dwellTimer      = 0f;
-            _fsmFired        = false;
+            _inElevatedState   = false;
+            _elevatedStartTime = 0f;
+            _dwellTimer        = 0f;
+            _fsmFired          = false;
+        }
+
+        /// <summary>
+        /// Resets all FSM, adaptation counters, and cooldown timers at session boundaries.
+        /// </summary>
+        public void ResetSession()
+        {
+            ResetFSMState();
+            _adaptationsThisStep = 0;
+            _lastStepId = "";
+            _lastAdaptationTime = -999f;
+            SuppressedCooldownCount = 0;
+            SuppressedMaxLimitCount = 0;
         }
 
         // ── Public Accessors (for debug HUD) ─────────────────────────────────────

@@ -44,14 +44,19 @@ namespace A3R.Adaptation
         /// <summary>UTC timestamp of the event.</summary>
         public DateTime Timestamp { get; }
 
+        /// <summary>Canonical event identity context (Object, Worker, PDI, EventId).</summary>
+        public A3R.ContentManager.CanonicalEvent CanonicalContext { get; set; }
+
         public AdaptationEvent(AdaptationAction action, string stepId,
-                               float confusionScore, float frustrationScore)
+                               float confusionScore, float frustrationScore,
+                               A3R.ContentManager.CanonicalEvent context = null)
         {
             Action           = action;
             StepId           = stepId;
             ConfusionScore   = confusionScore;
             FrustrationScore = frustrationScore;
             Timestamp        = DateTime.UtcNow;
+            CanonicalContext = context;
         }
 
         public override string ToString()

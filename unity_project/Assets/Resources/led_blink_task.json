@@ -1,0 +1,105 @@
+{
+  "task_id": "esp32_led_blink",
+  "task_name": "ESP32 AR-Guided LED Blink",
+  "description": "Assemble a blinking LED circuit using an ESP32, one LED, one resistor, and jumper wires.",
+  "components": [
+    "ESP32 Dev Board",
+    "Breadboard",
+    "LED",
+    "220 ohm Resistor",
+    "Jumper Wires"
+  ],
+  "steps": [
+    {
+      "id": "place_breadboard",
+      "step_number": 0,
+      "title": "Scan Breadboard",
+      "instruction": "Point the camera at the breadboard to align the AR tracking.",
+      "detail": "This establishes the workspace for accurate AR guidance.",
+      "highlight_component": "breadboard",
+      "highlight_color": [0.0, 1.0, 1.0],
+      "ar_arrow_target": "breadboard_center"
+    },
+    {
+      "id": "insert_led",
+      "step_number": 1,
+      "title": "Place the LED",
+      "instruction": "Insert the LED into the two highlighted holes. Long leg (+), Short leg (-).",
+      "detail": "Correct polarity is required for the LED to light.",
+      "highlight_component": "led",
+      "highlight_color": [1.0, 0.0, 0.0],
+      "ar_arrow_target": "led_center"
+    },
+    {
+      "id": "insert_resistor",
+      "step_number": 2,
+      "title": "Place the resistor",
+      "instruction": "Insert the resistor between the two highlighted holes.",
+      "detail": "The resistor limits current through the LED.",
+      "highlight_component": "resistor",
+      "highlight_color": [1.0, 0.9, 0.0],
+      "ar_arrow_target": "resistor_center"
+    },
+    {
+      "id": "wire_led_to_resistor",
+      "step_number": 3,
+      "title": "Connect LED to resistor",
+      "instruction": "Connect a jumper wire between the highlighted points.",
+      "detail": "This completes the LED path to the ESP32 output.",
+      "highlight_component": "jumper_wire",
+      "highlight_color": [0.0, 1.0, 1.0],
+      "ar_arrow_target": "wire1_center"
+    },
+    {
+      "id": "wire_to_gpio25",
+      "step_number": 4,
+      "title": "Connect to ESP32 GPIO",
+      "instruction": "Connect the highlighted breadboard point to ESP32 GPIO 25.",
+      "detail": "This allows the ESP32 to control the LED.",
+      "highlight_component": "jumper_wire",
+      "highlight_color": [0.0, 1.0, 0.0],
+      "ar_arrow_target": "wire2_center"
+    },
+    {
+      "id": "wire_to_gnd",
+      "step_number": 5,
+      "title": "Connect to GND",
+      "instruction": "Connect the LED cathode to ESP32 GND.",
+      "detail": "This completes the circuit back to ground.",
+      "highlight_component": "jumper_wire",
+      "highlight_color": [0.0, 0.0, 0.0],
+      "ar_arrow_target": "wire3_center"
+    },
+    {
+      "id": "power_upload",
+      "step_number": 6,
+      "title": "Power and Upload",
+      "instruction": "Connect the ESP32 to USB and upload the blink program.",
+      "detail": "This powers the ESP32 and starts the program.",
+      "highlight_component": "esp32",
+      "highlight_color": [1.0, 1.0, 1.0],
+      "ar_arrow_target": "esp32_usb"
+    },
+    {
+      "id": "verify_blink",
+      "step_number": 7,
+      "title": "Test the Circuit",
+      "instruction": "Run the program and verify that the LED blinks.",
+      "detail": "Ready to test.",
+      "highlight_component": "led",
+      "highlight_color": [1.0, 1.0, 0.0],
+      "ar_arrow_target": "led_center"
+    },
+    {
+      "id": "success",
+      "step_number": 8,
+      "title": "Success!",
+      "instruction": "LED Blinking! The circuit is working correctly.",
+      "detail": "Complete.",
+      "highlight_component": "led",
+      "highlight_color": [0.0, 1.0, 0.0],
+      "ar_arrow_target": "led_center"
+    }
+  ]
+}
+

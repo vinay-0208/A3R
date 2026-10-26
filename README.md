@@ -1,171 +1,126 @@
-# A³R — Affect-Adaptive Augmented Reality
-### Android-Only · Marker-Tracked · Academic Research Prototype
+# A³R — Affect-Aware Adaptive Guidance for Markerless Mobile Augmented Reality Assembly Training
+
+A closed-loop mobile augmented reality (AR) assembly training system that dynamically adapts step-by-step physical electronics assembly instructions in response to real-time learner affect (confusion and frustration) inferred non-intrusively from front-camera facial landmark geometry.
 
 ---
 
-## What This Is
+## 1. Problem Statement & Motivation
 
-A³R is a **research prototype** for an affect-adaptive AR-assisted electronics assembly learning system.
+Novice learners assembling physical electronics on a solderless breadboard encounter substantial cognitive split-attention friction when translating 2D circuit schematics into 3D physical pin coordinates ($0.1" / 2.54\text{ mm}$ pitch). Conventional mobile AR training applications provide uniform, static visual overlays regardless of whether a student is progressing smoothly or experiencing persistent hesitation and confusion.
 
-Using a **front-facing camera** to infer learner affect (confusion, frustration, engagement) from facial geometry, the system adapts live AR instructional overlays in response — injecting visual cues, simplifying steps, or slowing the instructional pace when the learner appears stuck.
-
-**Target use-case**: A learner assembles a blinking-LED circuit on a breadboard using an Arduino Uno. Printed AR markers on the workbench anchor 3D component overlays and step-by-step instructions in real space. A dwell-time FSM monitors affect scores and triggers one of four escalating adaptation actions.
-
-This is **not a shipping product** — it is a controlled research prototype for academic evaluation.
+A³R addresses this limitation by coupling a concurrent dual-camera mobile architecture with a real-time, deterministic affect perception pipeline. When sustained cognitive friction is detected, the system dynamically escalates visual scaffolding—rendering 3D animated target rings, directional pointer arrows, and wire routes rigidly registered to the physical breadboard without requiring physical screen touches.
 
 ---
 
-## System Architecture
+## 2. Key Features & System Architecture
 
 ```
-Front Camera (MediaPipe Face Landmarker)
-    ↓
-AffectFeatureExtractor  ← brow furrow, EAR, mouth tension, brow height
-    ↓
-AffectScorer            ← confusion, frustration, engagement scores (2 Hz)
-    ↓
-AdaptationController    ← threshold + dwell-time FSM (calibrated via DAiSEE)
-    ↓
-ARContentManager        ← mutates AR overlays: InjectCue / InsertHint / SlowPace / SimplifyStep
-    ↓
-SessionLogger           ← .jsonl log: affect trajectory + adaptation events
+                       ┌──────────────────────────────────────┐
+                       │        Single Mobile Device          │
+                       └──────────────────┬───────────────────┘
+                                          │
+            ┌─────────────────────────────┴─────────────────────────────┐
+            ▼                                                           ▼
+┌───────────────────────┐                                   ┌───────────────────────┐
+│      Rear Camera      │                                   │     Front Camera      │
+│   (ARCore Tracking)   │                                   │ (MediaPipe Landmarks) │
+└───────────┬───────────┘                                   └───────────┬───────────┘
+            │                                                           │
+            ▼                                                           ▼
+┌───────────────────────┐                                   ┌───────────────────────┐
+│ Horizontal Plane &    │                                   │ 478 3D Facial Mesh    │
+│ 4-Corner Calibration  │                                   │ Landmark Extraction   │
+└───────────┬───────────┘                                   └───────────┬───────────┘
+            │                                                           │
+            ▼                                                           ▼
+┌───────────────────────┐                                   ┌───────────────────────┐
+│ Breadboard Local      │                                   │ Geometric Metrics:    │
+│ Coordinate Frame      │                                   │ Brow, Eye (EAR), Mouth│
+└───────────┬───────────┘                                   └───────────┬───────────┘
+            │                                                           │
+            ▼                                                           ▼
+┌───────────────────────┐       Adaptation Triggers         ┌───────────────────────┐
+│ Dynamic 3D Overlays:  │ ◄──────────────────────────────── │ Affect Scorer & FSM   │
+│ Pins, Cues, Wires     │    (Dwell 3.0s, Cooldown 15s)     │ Confusion/Frustration │
+└───────────────────────┘                                   └───────────────────────┘
 ```
 
-AR tracking: **AR Foundation 5.1.5 + ARCore XR Plugin 5.1.5** (Android only — no ARKit)
+- **Markerless 4-Point Calibration**: Fast, fiducial-free plane registration anchoring digital overlays to the physical breadboard coordinate system ($0.1" / 2.54\text{ mm}$ pitch).
+- **Concurrent Dual-Camera Processing**: Real-time rear-camera AR tracking and front-camera facial landmark extraction executing concurrently on a single mobile device.
+- **Deterministic Heuristic Affect Scoring**: Sub-millisecond ($0.54\text{ ms}$) evaluation of Brow Furrow distance, Eye Aspect Ratio (EAR), and Mouth Tension ratios.
+- **Temporal State-Gating Logic**: A $3.0\text{ s}$ dwell window, $15\text{ s}$ cooldown period, and maximum of 3 adaptations per assembly step eliminate jitter, transient blinks, and visual disruption.
+- **ESP32 Assembly Guidance**: 4-step guided tutorial with complete component positioning, wiring cues, and forensic session logging.
 
 ---
 
-## Repository Layout
+## 3. Technology Stack
 
-```
-A3R/
-├── python_tools/
-│   └── daisee_calibration/      # Offline calibration pipeline (run on PC, not on device)
-│       ├── load_daisee.py         # DAiSEE dataset I/O
-│       ├── extract_features.py    # Per-frame facial feature extraction (MediaPipe)
-│       ├── score_affect_rulebased.py  # Rule-based weighted-sum affect scorer
-│       ├── calibrate_thresholds.py    # (T, D) grid sweep → calibration_result.json
-│       ├── batch_extract.py       # Batch orchestrator over DAiSEE clips
-│       └── visualize_calibration.py   # Publication figures (heatmap, PR curve, etc.)
-│
-├── unity_project/               # Unity 2022.3 LTS project (Android target)
-│   ├── Assets/
-│   │   ├── Scenes/A3R_Main.unity        # Main scene
-│   │   ├── Scripts/
-│   │   │   ├── ARTracking/              # ARImageTracker.cs
-│   │   │   ├── Affect/                  # AffectScorer, AffectFeatureExtractor, FaceLandmarkBridge
-│   │   │   ├── Adaptation/              # AdaptationController, AdaptationEvents
-│   │   │   ├── ContentManager/          # ARContentManager, InstructionStep
-│   │   │   └── Logging/                 # SessionLogger
-│   │   ├── Editor/BuildHelper.cs        # A3R → Build menu (Android APK/AAB)
-│   │   ├── StepData/led_blink_task.json # 8-step task definition
-│   │   ├── Models/                      # Imported .glb models
-│   │   ├── Prefabs/                     # LedPrefab, ArCueArrowPrefab, etc.
-│   │   └── ReferenceImageLibrary/       # XRReferenceImageLibrary asset (created in Editor)
-│   └── Packages/manifest.json           # AR Foundation + ARCore only, no ARKit
-│
-├── assets_reference/
-│   ├── marker_image_source.png  # 1000×1000 px AR tracking marker — PRINT AT 15 cm × 15 cm
-│   └── marker_image_print.pdf   # Print-ready PDF (100% scale)
-│
-├── assets_3d/
-│   ├── sourced/                 # Downloaded .glb models (or placeholders)
-│   └── ATTRIBUTIONS.md          # Source URLs + licenses (mandatory for academic use)
-│
-├── build/android/               # APK/AAB output (git-ignored)
-├── evaluation/                  # Pilot study data and results
-├── docs/
-│   ├── milestone_log.md         # Append-only project history
-│   ├── unity_setup_guide.md     # Step-by-step Unity installation + project setup
-│   ├── evaluation_plan.md       # Pilot study design (M8)
-│   ├── figures/                 # Generated calibration plots
-│   └── diagrams/                # PlantUML architecture + workflow diagrams
-│
-├── PROJECT_PLAN.md              # Project constitution — all design decisions
-├── memory.md                    # Agent state file (cross-session continuity)
-├── requirements.txt             # Python dependencies
-└── .venv/                       # Python 3.11.9 virtual environment (git-ignored)
-```
+- **Game Engine & Runtime**: Unity 6.3 LTS (`6000.3.23f1`), C# (.NET Standard 2.1)
+- **Augmented Reality Framework**: Unity AR Foundation `6.3.5` + Google ARCore XR Plugin `6.3.5`
+- **Vision Perception Pipeline**: Google MediaPipe FaceLandmarker via `homuler` Unity Plugin (478 3D landmarks @ 30 FPS camera stream)
+- **Target Platform**: Android 15 / Xiaomi HyperOS (validated on POCO X7 Pro `2412DPC0AI`, MediaTek Dimensity 8300-Ultra)
+- **Telemetry & Logging**: Local CSV / JSONL event logging and Android Logcat diagnostic integration
 
 ---
 
-## Quickstart
+## 4. Project Setup & Getting Started
 
-### 1. Python Calibration Tooling
+### Prerequisites
+1. **Unity Hub**: Install Unity Hub from [unity.com](https://unity.com/download).
+2. **Unity Editor**: Install **Unity 6000.3.23f1 (Unity 6.3 LTS)** with the **Android Build Support** module (including Android SDK & NDK tools and OpenJDK).
+3. **Git LFS**: Ensure Git Large File Storage is installed (`git lfs version`).
 
-```powershell
-# Activate venv (Windows)
-.\.venv\Scripts\activate
-
-# Run calibration smoke test (synthetic data)
-python python_tools\daisee_calibration\calibrate_thresholds.py
-
-# Full DAiSEE calibration (requires dataset + MediaPipe model)
-python python_tools\daisee_calibration\batch_extract.py `
-    --daisee_root "D:\datasets\DAiSEE" `
-    --split test `
-    --model_path face_landmarker.task `
-    --n_clips 200
-
-python python_tools\daisee_calibration\calibrate_thresholds.py
-python python_tools\daisee_calibration\visualize_calibration.py
+### Cloning the Repository
+```bash
+git clone https://github.com/vinay-0208/A3R.git
+cd A3R
+git lfs pull
 ```
 
-### 2. Unity Project Setup
+### Opening in Unity
+1. Open **Unity Hub** and click **Add** $\rightarrow$ **Add project from disk**.
+2. Select the `unity_project` directory inside the cloned repository (`A3R/unity_project`).
+3. Allow Unity to resolve and compile the project packages (AR Foundation, ARCore, and embedded MediaPipe plugin).
+4. In the Unity Project browser, navigate to `Assets/Scenes/` and double-click `A3R_Main.unity`.
 
-See [`docs/unity_setup_guide.md`](docs/unity_setup_guide.md) for the full 9-step setup.
-
-**Short version**:
-1. Install Unity Hub → https://unity.com/download
-2. Install Unity **2022.3 LTS** with Android Build Support
-3. Open `unity_project/` in Unity Hub
-4. XR Plug-in Management → Android tab → tick **ARCore**
-5. Menu: **A3R → Verify Build Settings**
-
-### 3. Build Android APK
-
-```
-Unity Editor → A3R → Build Android APK (Debug)
-Output: build/android/A3R_debug_<timestamp>.apk
-```
-
-### 4. Print the AR Marker
-
-Print `assets_reference/marker_image_print.pdf` at **100% scale** (no fit/shrink).  
-The marker must be **exactly 15 cm × 15 cm** after printing.  
-Measure with a ruler. Place flat on the workbench beside the breadboard.
+### Building for Android
+1. Go to **File $\rightarrow$ Build Profiles** (or **Build Settings**).
+2. Ensure the platform is set to **Android**.
+3. Under **Project Settings $\rightarrow$ XR Plug-in Management**, confirm **ARCore** is checked.
+4. Connect an ARCore-compatible Android device via USB with USB Debugging enabled.
+5. Click **Build and Run**.
 
 ---
 
-## Key Design Decisions
+## 5. Device, Camera & Runtime Requirements
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| AR platform | Android only (ARCore) | Lab devices are Android; ARKit excluded by requirement |
-| Affect inference | Rule-based geometric features (no ML model) | No training data needed on-device; calibrated thresholds from DAiSEE |
-| Feature pipeline | MediaPipe Face Landmarker 478-pt | State-of-art accuracy, runs at ~15fps on mid-range Android |
-| Adaptation trigger | Threshold + dwell-time FSM | Simple, interpretable, calibrate-able; no online learning |
-| Task domain | Arduino Uno LED blink circuit (8 steps) | Universal intro electronics task; well-documented errors |
-| 3D overlays | Mixed (sourced CC0 GLBs + Unity primitives) | Avoids licensing issues; primitives sufficient for prototype |
-| Logging | Line-delimited JSON (.jsonl) | Streamable, trivially parseable in Python for analysis |
+- **Operating System**: Android 10.0 (API Level 29) or higher (tested and validated on Android 15).
+- **Hardware**: Dual-camera Android device supported by Google Play Services for AR (ARCore).
+- **Permissions**: `android.permission.CAMERA` declared and granted at runtime.
+- **Graphics API**: OpenGL ES 3.0+ or Vulkan.
 
 ---
 
-## Constraints (Non-Negotiable)
+## 6. Known Limitations & Future Work
 
-- ❌ **No ARKit** — Android-only project
-- ❌ **No scikit-learn** — not in requirements, not in venv, not in any script
-- ✅ **Virtual environment MUST be `.venv/`** (not `venv/`)
-- ✅ **Affect scoring is rule-based** — no trained classifiers
+- **Heuristic Affect Scoring**: Affect scores represent geometric kinematic proxies, not clinical ground-truth emotion states.
+- **Manual Step Progression**: Tutorial step transitions are currently learner-driven; automated computer-vision circuit continuity verification is part of the future research roadmap.
+- **Single-User Baseline Calibration**: Facial metric baselines calibrate to individual geometry over the initial 60 frames.
+- **Future Directions**: Multimodal sensor fusion (acoustic hesitation cues), automated electrical continuity sensing, and broader user evaluations.
 
 ---
 
-## Academic Attribution
+## 7. Team Contributions
 
-If this work is cited or published, reference the following:
+- **Vinay Vishwanathan** — Project Developer
+- **Aarif Mohammed JK** — Team Member
+- **Harshavardhan R** — Team Member
 
-- **DAiSEE dataset**: Gupta et al. (2016). "DAiSEE: Towards User Engagement Recognition in the Wild." *arXiv:1609.01885*
-- **AR Foundation / ARCore**: Unity Technologies + Google
-- **MediaPipe**: Lugaresi et al. (2019). "MediaPipe: A Framework for Building Perception Pipelines." *CVPR Workshop*
+---
 
-3D asset attributions are in [`assets_3d/ATTRIBUTIONS.md`](assets_3d/ATTRIBUTIONS.md).
+## 8. Academic Attribution & References
+
+- **DAiSEE Dataset**: Gupta et al. (2016). *DAiSEE: Towards User Engagement Recognition in the Wild.* arXiv:1609.01885.
+- **AR Foundation & ARCore**: Unity Technologies & Google.
+- **MediaPipe**: Lugaresi et al. (2019). *MediaPipe: A Framework for Building Perception Pipelines.* CVPR Workshop.
+- **3D Assets**: Attributions and source licenses are cataloged in [`assets_3d/ATTRIBUTIONS.md`](assets_3d/ATTRIBUTIONS.md).

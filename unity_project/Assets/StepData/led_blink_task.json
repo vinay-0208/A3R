@@ -81,7 +81,7 @@
       "detail": "One end of the jumper wire goes into Arduino digital pin 13 (labeled '13' on the board, in the row of digital pins). The other end goes into breadboard row 10, column A (the same row as the first resistor lead, but on the opposite side of the center gap).",
       "highlight_component": "jumper_wire",
       "highlight_color": [0.3, 1.0, 0.3],
-      "ar_arrow_target": "arduino_pin13",
+      "ar_arrow_target": "board_gpio13",
       "common_errors": [
         "Using the wrong pin number (must be pin 13, not 12 or A0)",
         "Breadboard end in wrong row (must match the row with the resistor lead)",
@@ -102,7 +102,7 @@
       "detail": "One end goes into any Arduino GND pin (there are 3 GND pins — look for the one labeled 'GND' near the digital pins). The other end goes into breadboard row 15, column A — the same row as the LED's short (cathode) leg.",
       "highlight_component": "jumper_wire",
       "highlight_color": [0.1, 0.1, 0.9],
-      "ar_arrow_target": "arduino_gnd",
+      "ar_arrow_target": "board_gnd",
       "common_errors": [
         "Connecting to analog GND pin instead of digital GND",
         "Breadboard end in wrong row (must be row 15 — the cathode row)",
@@ -123,7 +123,7 @@
       "detail": "Use the USB-B connector on the Arduino (the square connector on the board, not a USB-A port). Connect the other end to a free USB port on the computer. The green power LED on the Arduino should light up immediately when connected.",
       "highlight_component": "arduino_uno",
       "highlight_color": [0.8, 0.8, 0.8],
-      "ar_arrow_target": "arduino_usb_port",
+      "ar_arrow_target": "board_usb_port",
       "common_errors": [
         "Using wrong cable type (must be USB-B, not micro-USB)",
         "Power LED not lighting up (cable not fully seated or USB port issue)",

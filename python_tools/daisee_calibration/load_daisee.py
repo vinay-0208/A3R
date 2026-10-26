@@ -32,8 +32,20 @@ import pandas as pd
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-# Set this to the root of your local DAiSEE dataset download.
-DAISEE_ROOT = Path(os.environ.get("DAISEE_ROOT", r"C:\datasets\DAiSEE"))
+# Configurable DAiSEE root: DAISEE_ROOT env var -> local path fallbacks -> repo datasets/DAiSEE
+_repo_datasets = Path(__file__).resolve().parents[2] / "datasets" / "DAiSEE"
+if os.environ.get("DAISEE_ROOT"):
+    _default_root = Path(os.environ["DAISEE_ROOT"])
+elif Path(r"C:\Dataset\DAiSEE").exists():
+    _default_root = Path(r"C:\Dataset\DAiSEE")
+elif Path(r"C:\datasets\DAiSEE").exists():
+    _default_root = Path(r"C:\datasets\DAiSEE")
+elif _repo_datasets.exists():
+    _default_root = _repo_datasets
+else:
+    _default_root = Path(r"C:\Dataset\DAiSEE")
+
+DAISEE_ROOT = Path(os.environ.get("DAISEE_ROOT", _default_root))
 
 LABEL_FILES = {
     "train":      DAISEE_ROOT / "Labels" / "TrainLabels.csv",
@@ -86,6 +98,34 @@ def load_labels(split: str = "train") -> pd.DataFrame:
     return df[[COL_CLIP, COL_BOREDOM, COL_ENGAGE, COL_CONFUSE, COL_FRUSTRO]].copy()
 
 
+def find_clip_path(clip_dir: str | Path, clip_id: str) -> str | None:
+    """Find full path for clip_id in clip_dir."""
+    clip_dir = Path(clip_dir)
+    stem = Path(clip_id).stem
+    # 1. Direct file check
+    for ext in ("", ".avi", ".mp4", ".AVI", ".MP4"):
+        f = clip_dir / (clip_id if not ext else f"{stem}{ext}")
+        if f.is_file():
+            return str(f)
+    # 2. Hierarchical structure: <clip_dir>/<SubjectID>/<ClipID>/<ClipID>.<ext>
+    # DAiSEE subject ID is typically the 4-6 digit prefix of the clip stem
+    for sub_len in (6, 5, 4):
+        if len(stem) >= sub_len:
+            sub = stem[:sub_len]
+            cand_dir = clip_dir / sub / stem
+            if cand_dir.is_dir():
+                for ext in (".avi", ".mp4", ".AVI", ".MP4"):
+                    cand_file = cand_dir / f"{stem}{ext}"
+                    if cand_file.is_file():
+                        return str(cand_file)
+    # 3. Fallback recursive search
+    matches = list(clip_dir.rglob(f"{stem}.*"))
+    for m in matches:
+        if m.suffix.lower() in (".avi", ".mp4"):
+            return str(m)
+    return None
+
+
 def get_clip_paths(labels_df: pd.DataFrame, split: str = "train",
                    daisee_root: Path = DAISEE_ROOT) -> pd.DataFrame:
     """
@@ -98,21 +138,8 @@ def get_clip_paths(labels_df: pd.DataFrame, split: str = "train",
     split = split.lower()
     clip_dir = daisee_root / "DataSet" / split.capitalize()
 
-    def _resolve(clip_id: str) -> str | None:
-        # DAiSEE clip IDs look like "1100011001.avi"
-        # They live under SubjectID subdirectories.
-        # Try direct path first, then recursive glob.
-        direct = clip_dir / clip_id
-        if direct.exists():
-            return str(direct)
-        # Recursive search (slow for large dataset — use sparingly on subsets)
-        matches = list(clip_dir.rglob(clip_id))
-        if matches:
-            return str(matches[0])
-        return None
-
     df = labels_df.copy()
-    df["clip_path"] = df[COL_CLIP].apply(_resolve)
+    df["clip_path"] = df[COL_CLIP].apply(lambda cid: find_clip_path(clip_dir, str(cid)))
 
     missing = df["clip_path"].isna().sum()
     if missing > 0:

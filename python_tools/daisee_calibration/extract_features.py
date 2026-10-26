@@ -24,7 +24,12 @@ Usage:
 import math
 import numpy as np
 import pandas as pd
-import cv2
+try:
+    import cv2
+    _HAS_CV2 = True
+except ImportError:
+    _HAS_CV2 = False
+    cv2 = None
 
 try:
     import mediapipe as mp
@@ -132,8 +137,12 @@ def compute_features_from_landmarks(landmarks) -> dict:
 
     ear_l = _ear(LM_L_EYE_TOP, LM_L_EYE_BOT, LM_L_EYE_INNER, LM_L_EYE_OUTER)
     ear_r = _ear(LM_R_EYE_TOP, LM_R_EYE_BOT, LM_R_EYE_INNER, LM_R_EYE_OUTER)
-    # Raw EAR: typical open eye ~0.25–0.35; squinting lower. Clamped to [0,1].
-    ear_norm = float(np.clip((ear_l + ear_r) / 2.0, 0.0, 1.0))
+    # Min-max normalize EAR using baseline bounds: [0.15 (squinted/closed), 0.35 (open)]
+    # Matches AffectFeatureExtractor.cs constants
+    EAR_MIN = 0.15
+    EAR_MAX = 0.35
+    ear_raw = (ear_l + ear_r) / 2.0
+    ear_norm = float(np.clip((ear_raw - EAR_MIN) / (EAR_MAX - EAR_MIN), 0.0, 1.0))
 
     # ── Feature 3: Mouth Corner Tension ─────────────────────────────────────
     l_mouth  = _lm(landmarks, LM_L_MOUTH)
@@ -158,6 +167,7 @@ def compute_features_from_landmarks(landmarks) -> dict:
 
     return {
         "brow_furrow_norm":   float(brow_furrow_norm),
+        "ear_raw":            float(ear_raw),
         "ear_norm":           float(ear_norm),
         "mouth_tension_norm": float(mouth_tension_norm),
         "brow_height_norm":   float(brow_height_norm),
@@ -186,6 +196,8 @@ def extract_features_from_clip(clip_path: str, sample_fps: float = 5.0,
     """
     if not _HAS_MEDIAPIPE:
         raise ImportError("mediapipe is required. pip install mediapipe")
+    if not _HAS_CV2:
+        raise ImportError("opencv-python is required. pip install opencv-python")
 
     import os
     if not os.path.exists(model_path):

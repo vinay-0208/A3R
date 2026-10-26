@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
@@ -7,176 +6,202 @@ using UnityEngine.XR.ARSubsystems;
 namespace A3R.ARTracking
 {
     /// <summary>
-    /// ARImageTracker — Module 1 of the A³R system.
+    /// Listens to ARTrackedImageManager for the "marker" image target.
     ///
-    /// Wraps AR Foundation's ARTrackedImageManager to detect and track the printed
-    /// reference image (A3R_ReferenceImageLibrary). When the image is detected, a
-    /// content root GameObject is instantiated and parented to the tracked image's
-    /// transform, anchoring all AR instructional overlays to the physical marker.
+    /// The XRReferenceImageLibrary is assigned to ARTrackedImageManager in the scene.
+    /// It is rebuilt before every build by A3R_LibraryBuilder.RebuildLibrary()
+    /// (called from BuildHelper.BuildAndroidApkStandard) to ensure m_DataStore
+    /// is populated so ARCore has a non-empty image database.
     ///
-    /// All AR content (step overlays, 3D models, arrows) must be children of the
-    /// ContentRoot transform to remain correctly anchored as the marker moves.
+    /// This script does NOT create or replace the reference library at runtime.
     /// </summary>
     [RequireComponent(typeof(ARTrackedImageManager))]
     public class ARImageTracker : MonoBehaviour
     {
-        // ── Inspector References ────────────────────────────────────────────────
-        [Header("Content Root")]
-        [Tooltip("Prefab instantiated once when the reference image is first detected. " +
-                 "All AR content should be parented to this object's transform.")]
-        [SerializeField] private GameObject contentRootPrefab;
+        [Header("Tracking")]
+        [Tooltip("Must match the name set in XRReferenceImageLibrary (\"marker\").")]
+        public string referenceImageName = "marker";
 
-        [Header("Tracking Settings")]
-        [Tooltip("Reference image name as defined in the XRReferenceImageLibrary asset.")]
-        [SerializeField] private string referenceImageName = "A3R_Marker";
+        [Header("Outline")]
+        public float physicalWidth  = 0.085f;
+        public float physicalHeight = 0.055f;
 
-        // ── Events ───────────────────────────────────────────────────────────────
-        /// <summary>Fired when the reference image is first detected. Arg: content root Transform.</summary>
-        public event Action<Transform> OnMarkerDetected;
-
-        /// <summary>Fired when the tracked image pose updates. Arg: updated content root Transform.</summary>
-        public event Action<Transform> OnMarkerUpdated;
-
-        /// <summary>Fired when tracking is lost (marker out of view).</summary>
-        public event Action OnMarkerLost;
-
-        // ── Private State ────────────────────────────────────────────────────────
-        private ARTrackedImageManager _trackedImageManager;
+        private ARTrackedImageManager _mgr;
+        private ARTrackedImage        _activeImage;   // the currently tracked image
         private GameObject            _contentRoot;
+        private GameObject            _outlineRoot;
         private bool                  _isTracking;
+        private int                   _frameCount;
 
-        // ── Unity Lifecycle ──────────────────────────────────────────────────────
+        // ── Public diagnostics (read by A3R_ARDiagnosticsUI) ───────────────
+        public bool      IsTracking       => _isTracking;
+        public Transform ContentRoot      => _contentRoot != null ? _contentRoot.transform : null;
+        public string    TrackingStateDiag { get; private set; } = "NONE";
+
+        // ── Events ─────────────────────────────────────────────────────────
+        public event Action<Transform> OnMarkerDetected;
+        public event Action<Transform> OnMarkerUpdated;
+        public event Action            OnMarkerLost;
+
         private void Awake()
         {
-            _trackedImageManager = GetComponent<ARTrackedImageManager>();
+            _mgr = GetComponent<ARTrackedImageManager>();
         }
 
         private void OnEnable()
         {
-            _trackedImageManager.trackedImagesChanged += OnTrackedImagesChanged;
+            if (_mgr != null)
+                _mgr.trackablesChanged.AddListener(OnTrackablesChanged);
         }
 
         private void OnDisable()
         {
-            _trackedImageManager.trackedImagesChanged -= OnTrackedImagesChanged;
+            if (_mgr != null)
+                _mgr.trackablesChanged.RemoveListener(OnTrackablesChanged);
         }
 
-        // ── Public API ───────────────────────────────────────────────────────────
-        /// <summary>Returns true if the reference marker is currently being tracked.</summary>
-        public bool IsTracking => _isTracking;
-
-        /// <summary>Returns the content root transform, or null if not yet detected.</summary>
-        public Transform ContentRoot => _contentRoot != null ? _contentRoot.transform : null;
-
-        // ── ARTrackedImageManager Callback ───────────────────────────────────────
-        private void OnTrackedImagesChanged(ARTrackedImagesChangedEventArgs args)
+        private void Update()
         {
-            // Newly detected images
-            foreach (var trackedImage in args.added)
+            _frameCount++;
+            if (_frameCount % 90 == 0)
             {
-                if (IsOurMarker(trackedImage))
-                    HandleMarkerDetected(trackedImage);
-            }
-
-            // Updated poses
-            foreach (var trackedImage in args.updated)
-            {
-                if (IsOurMarker(trackedImage))
-                    HandleMarkerUpdated(trackedImage);
-            }
-
-            // Removed / lost tracking
-            foreach (var trackedImage in args.removed)
-            {
-                if (IsOurMarker(trackedImage))
-                    HandleMarkerLost();
+                bool libAssigned = _mgr != null && _mgr.referenceLibrary != null;
+                int  libCount    = libAssigned ? _mgr.referenceLibrary.count : -1;
+                bool subRunning  = _mgr?.subsystem?.running ?? false;
+                Debug.Log($"[A3R_IMAGE_TRACKING] Heartbeat | LibAssigned={libAssigned} | LibCount={libCount} | SubRunning={subRunning} | IsTracking={_isTracking} | TrackState={TrackingStateDiag}");
             }
         }
 
-        // ── Tracking State Handlers ──────────────────────────────────────────────
-        private void HandleMarkerDetected(ARTrackedImage trackedImage)
+        // ── Tracking Events ─────────────────────────────────────────────────
+        private void OnTrackablesChanged(ARTrackablesChangedEventArgs<ARTrackedImage> args)
         {
-            Debug.Log($"[ARImageTracker] Reference marker detected: {trackedImage.referenceImage.name}");
+            foreach (var img in args.added)
+                if (IsOurMarker(img)) HandleAdded(img);
+
+            foreach (var img in args.updated)
+                if (IsOurMarker(img)) HandleUpdated(img);
+
+            foreach (var kvp in args.removed)
+                if (kvp.Value != null && IsOurMarker(kvp.Value)) HandleLost();
+        }
+
+        private bool IsOurMarker(ARTrackedImage img) =>
+            string.Equals(img.referenceImage.name, referenceImageName, StringComparison.OrdinalIgnoreCase);
+
+        private void HandleAdded(ARTrackedImage img)
+        {
+            _activeImage = img;
+            Debug.Log($"[A3R_IMAGE_TRACKING] EVENT: ADDED | ref={img.referenceImage.name} | state={img.trackingState} | pos={img.transform.position} | refSize={img.referenceImage.size}");
 
             if (_contentRoot == null)
             {
-                // Instantiate content root parented to the tracked image's transform
-                if (contentRootPrefab != null)
-                {
-                    _contentRoot = Instantiate(contentRootPrefab,
-                                               trackedImage.transform.position,
-                                               trackedImage.transform.rotation,
-                                               trackedImage.transform);
-                    _contentRoot.name = "A3R_ContentRoot";
-                }
-                else
-                {
-                    // Fallback: empty GameObject
-                    _contentRoot = new GameObject("A3R_ContentRoot");
-                    _contentRoot.transform.SetParent(trackedImage.transform, false);
-                }
+                _contentRoot = new GameObject("BreadboardARRoot");
             }
 
-            _contentRoot.transform.SetPositionAndRotation(
-                trackedImage.transform.position,
-                trackedImage.transform.rotation);
+            // Parent directly to the ARTrackedImage so pose updates automatically.
+            // Zero local transform so it sits exactly on the detected image.
+            _contentRoot.transform.SetParent(img.transform, false);
+            _contentRoot.transform.localPosition = Vector3.zero;
+            _contentRoot.transform.localRotation = Quaternion.identity;
+            _contentRoot.transform.localScale    = Vector3.one;
             _contentRoot.SetActive(true);
-            _isTracking = true;
 
+            _isTracking = true;
+            TrackingStateDiag = img.trackingState.ToString();
+
+            EnsureOutline(img.referenceImage.size);
+            SetOutlineVisible(true);
+
+            Debug.Log($"[A3R_IMAGE_TRACKING] BreadboardARRoot parented to ARTrackedImage. WorldPos={_contentRoot.transform.position} WorldScale={_contentRoot.transform.lossyScale}");
             OnMarkerDetected?.Invoke(_contentRoot.transform);
         }
 
-        private void HandleMarkerUpdated(ARTrackedImage trackedImage)
+        private void HandleUpdated(ARTrackedImage img)
         {
-            if (_contentRoot == null) { HandleMarkerDetected(trackedImage); return; }
+            if (_contentRoot == null) { HandleAdded(img); return; }
+            _activeImage = img;
+            TrackingStateDiag = img.trackingState.ToString();
 
-            bool wasTracking = _isTracking;
-
-            switch (trackedImage.trackingState)
+            switch (img.trackingState)
             {
                 case TrackingState.Tracking:
-                    _contentRoot.SetActive(true);
-                    _isTracking = true;
-                    OnMarkerUpdated?.Invoke(_contentRoot.transform);
-                    break;
-
                 case TrackingState.Limited:
-                    // Still show content but flag as limited quality
                     _contentRoot.SetActive(true);
+                    SetOutlineVisible(true);
                     _isTracking = true;
                     OnMarkerUpdated?.Invoke(_contentRoot.transform);
-                    Debug.LogWarning("[ARImageTracker] Tracking state: Limited — marker may be partially occluded.");
                     break;
 
                 case TrackingState.None:
                     _contentRoot.SetActive(false);
-                    if (wasTracking)
+                    SetOutlineVisible(false);
+                    if (_isTracking)
                     {
                         _isTracking = false;
+                        Debug.Log("[A3R_IMAGE_TRACKING] TrackingState.None — overlay hidden");
                         OnMarkerLost?.Invoke();
-                        Debug.Log("[ARImageTracker] Tracking lost — content hidden until marker re-detected.");
                     }
                     break;
             }
         }
 
-        private void HandleMarkerLost()
+        private void HandleLost()
         {
-            if (_contentRoot != null)
-                _contentRoot.SetActive(false);
-
+            if (_contentRoot != null) _contentRoot.SetActive(false);
+            SetOutlineVisible(false);
             if (_isTracking)
             {
                 _isTracking = false;
+                TrackingStateDiag = "REMOVED";
+                Debug.Log("[A3R_IMAGE_TRACKING] EVENT: REMOVED — overlay hidden");
                 OnMarkerLost?.Invoke();
-                Debug.Log("[ARImageTracker] Marker removed from tracked images list.");
             }
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────────────
-        private bool IsOurMarker(ARTrackedImage trackedImage)
+        // ── Cyan Outline ───────────────────────────────────────────────────
+        private void EnsureOutline(Vector2 refSize)
         {
-            return trackedImage.referenceImage.name == referenceImageName;
+            if (_outlineRoot != null) return;
+            if (_contentRoot == null) return;
+
+            float w     = refSize.x > 0.001f ? refSize.x : physicalWidth;
+            float h     = refSize.y > 0.001f ? refSize.y : physicalHeight;
+            float thick = 0.002f;
+            float raised= 0.001f;
+
+            _outlineRoot = new GameObject("BreadboardOutline");
+            _outlineRoot.transform.SetParent(_contentRoot.transform, false);
+            _outlineRoot.transform.localPosition = Vector3.zero;
+            _outlineRoot.transform.localRotation = Quaternion.identity;
+            _outlineRoot.transform.localScale    = Vector3.one;
+
+            Color cyan = new Color(0f, 1f, 1f, 1f);
+            MakeEdge(_outlineRoot, "EdgeTop",    new Vector3(0,    raised,  h/2f), new Vector3(w + thick, thick, thick), cyan);
+            MakeEdge(_outlineRoot, "EdgeBottom", new Vector3(0,    raised, -h/2f), new Vector3(w + thick, thick, thick), cyan);
+            MakeEdge(_outlineRoot, "EdgeLeft",   new Vector3(-w/2f,raised,  0),   new Vector3(thick, thick, h),          cyan);
+            MakeEdge(_outlineRoot, "EdgeRight",  new Vector3( w/2f,raised,  0),   new Vector3(thick, thick, h),          cyan);
+
+            Debug.Log($"[A3R_IMAGE_TRACKING] Cyan outline built: {w*100f:F1}cm x {h*100f:F1}cm");
+        }
+
+        private void MakeEdge(GameObject parent, string eName, Vector3 lPos, Vector3 lScale, Color col)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(go.GetComponent<BoxCollider>());
+            go.name = eName;
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = lPos;
+            go.transform.localScale    = lScale;
+
+            var mat = new Material(Shader.Find("Standard"));
+            mat.color = col;
+            mat.SetFloat("_Glossiness", 0f);
+            go.GetComponent<MeshRenderer>().material = mat;
+        }
+
+        private void SetOutlineVisible(bool v)
+        {
+            if (_outlineRoot != null) _outlineRoot.SetActive(v);
         }
     }
 }

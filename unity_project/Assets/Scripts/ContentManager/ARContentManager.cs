@@ -5,6 +5,11 @@ using UnityEngine.UI;
 using TMPro;
 using A3R.ARTracking;
 using A3R.Adaptation;
+using A3R.ARGuidance;
+using A3R.Hardware;
+using A3R.UI;
+using A3R.Affect;
+using A3R.Logging;
 
 namespace A3R.ContentManager
 {
@@ -13,19 +18,10 @@ namespace A3R.ContentManager
     ///
     /// Manages the instructional step sequence loaded from led_blink_task.json.
     /// Renders the current step's AR overlay (text panel, component highlight, arrow cue)
-    /// as children of the content root provided by ARImageTracker.
-    ///
-    /// Subscribes to AdaptationController events and mutates rendered content:
-    ///   SimplifyStep → show detailed sub-step breakdown
-    ///   InjectCue    → enable AR arrow pointing at the target component
-    ///   SlowPace     → expand detail text + slow auto-advance timer
-    ///   InsertHint   → show hint panel with contextual guidance
-    ///
-    /// All displayed content is parented to the content root (anchored to the marker).
+    /// as children of the content root provided by ARImageTracker or BreadboardARRoot.
     /// </summary>
     public class ARContentManager : MonoBehaviour
     {
-        // ── Inspector References ────────────────────────────────────────────────
         [Header("Task Data")]
         [SerializeField] private TextAsset taskJsonFile;
 
@@ -46,27 +42,68 @@ namespace A3R.ContentManager
         [Header("AR Visual Elements")]
         [SerializeField] private GameObject arCueArrow;
         [SerializeField] private GameObject highlightMarker;
+        [SerializeField] private ARGuidanceController arGuidanceController;
+
+        [Header("UI & Hardware Systems")]
+        [SerializeField] private UIManager uiManager;
+        [SerializeField] private MockESP32Bridge hardwareBridge;
 
         [Header("Debug HUD")]
         [SerializeField] private GameObject debugHUD;
         [SerializeField] private TextMeshProUGUI debugAffectText;
 
-        // ── Events ───────────────────────────────────────────────────────────────
-        /// <summary>Fired when the step advances. Args: new step index, step data.</summary>
-        public event Action<int, InstructionStep> OnStepChanged;
+        [Header("Canonical Identity & Prediction")]
+        [SerializeField] private string workerId = "learner_01";
+        [SerializeField] private Affect.AffectPredictor affectPredictor;
 
-        /// <summary>Fired when all steps are complete.</summary>
+        // ── Canonical Identity ──────────────────────────────────────────────────
+        public CanonicalEvent CurrentCanonicalEvent { get; private set; }
+
+        // ── AR Guidance Visual System ─────────────────────────────────────────
+        public ARGuidanceController ARGuidanceController => arGuidanceController;
+        public Affect.AffectPredictor AffectPredictor => affectPredictor;
+        public MockESP32Bridge HardwareBridge => hardwareBridge;
+        public UIManager UIManager => uiManager;
+
+        // ── Events ───────────────────────────────────────────────────────────
+        public event Action<int, InstructionStep> OnStepChanged;
         public event Action OnTaskComplete;
 
-        // ── Private State ────────────────────────────────────────────────────────
+        // ── Private State ────────────────────────────────────────────────────
         private InstructionTask _task;
         private int             _currentStepIndex;
         private bool            _slowPaceActive;
         private bool            _simplifyActive;
         private bool            _hintActive;
         private bool            _cueActive;
+        private float           _sessionStartTime;
+        private Transform       _activeContentRoot;
 
-        // ── Unity Lifecycle ──────────────────────────────────────────────────────
+        public bool IsHintActive => _hintActive;
+        public bool IsCueActive  => _cueActive;
+        public bool IsSlowPaceActive => _slowPaceActive;
+        public bool IsSimplifyActive => _simplifyActive;
+
+        // ── Unity Lifecycle ──────────────────────────────────────────────────
+        private void Awake()
+        {
+            if (arImageTracker == null)
+                arImageTracker = GetComponent<ARImageTracker>() ?? FindFirstObjectByType<ARImageTracker>();
+            if (affectPredictor == null)
+                affectPredictor = GetComponent<Affect.AffectPredictor>() ?? FindFirstObjectByType<Affect.AffectPredictor>();
+            if (uiManager == null)
+                uiManager = GetComponent<UIManager>() ?? FindFirstObjectByType<UIManager>();
+            if (hardwareBridge == null)
+                hardwareBridge = GetComponent<MockESP32Bridge>() ?? FindFirstObjectByType<MockESP32Bridge>();
+            if (arGuidanceController == null)
+                arGuidanceController = GetComponent<ARGuidanceController>() ?? FindFirstObjectByType<ARGuidanceController>();
+
+            if (taskJsonFile == null)
+                taskJsonFile = Resources.Load<TextAsset>("led_blink_task");
+
+            _sessionStartTime = Time.time;
+        }
+
         private void Start()
         {
             LoadTask();
@@ -78,6 +115,38 @@ namespace A3R.ContentManager
                 arImageTracker.OnMarkerDetected += OnMarkerDetected;
                 arImageTracker.OnMarkerLost     += OnMarkerLost;
             }
+
+            var markerless = FindFirstObjectByType<A3R.ARTracking.A3R_MarkerlessFoundationController>();
+            if (markerless != null)
+            {
+                markerless.OnBreadboardPlaced += OnBreadboardPlaced;
+            }
+
+            if (uiManager != null)
+            {
+                uiManager.OnNextStepRequested += NextStep;
+                uiManager.OnPrevStepRequested += PreviousStep;
+                uiManager.OnRestartRequested  += RestartTask;
+                uiManager.OnStartSessionRequested += HandleStartSession;
+                uiManager.OnStopSessionRequested  += HandleStopSession;
+            }
+
+            if (hardwareBridge != null)
+            {
+                hardwareBridge.OnConnectionStateChanged += OnHardwareConnectionStateChanged;
+                uiManager?.UpdateHardwareStatus(hardwareBridge.CurrentState, hardwareBridge.IsMock);
+            }
+
+            uiManager?.ShowHomeScreen();
+        }
+
+        private void Update()
+        {
+            var logger = GetComponent<SessionLogger>() ?? FindFirstObjectByType<SessionLogger>();
+            if (logger != null && uiManager != null)
+            {
+                uiManager.UpdateSessionStatus(logger.IsSessionActive, logger.CurrentSessionDurationSeconds);
+            }
         }
 
         private void OnDestroy()
@@ -87,19 +156,81 @@ namespace A3R.ContentManager
                 arImageTracker.OnMarkerDetected -= OnMarkerDetected;
                 arImageTracker.OnMarkerLost     -= OnMarkerLost;
             }
+
+            var markerless = FindFirstObjectByType<A3R.ARTracking.A3R_MarkerlessFoundationController>();
+            if (markerless != null)
+            {
+                markerless.OnBreadboardPlaced -= OnBreadboardPlaced;
+            }
+
+            if (uiManager != null)
+            {
+                uiManager.OnNextStepRequested -= NextStep;
+                uiManager.OnPrevStepRequested -= PreviousStep;
+                uiManager.OnRestartRequested  -= RestartTask;
+                uiManager.OnStartSessionRequested -= HandleStartSession;
+                uiManager.OnStopSessionRequested  -= HandleStopSession;
+            }
+
+            if (hardwareBridge != null)
+            {
+                hardwareBridge.OnConnectionStateChanged -= OnHardwareConnectionStateChanged;
+            }
+        }
+
+        private void HandleStartSession()
+        {
+            var logger = GetComponent<SessionLogger>() ?? FindFirstObjectByType<SessionLogger>();
+            logger?.StartNewSession();
+            var adapt = GetComponent<AdaptationController>() ?? FindFirstObjectByType<AdaptationController>();
+            adapt?.ResetSession();
+            RestartTask();
+            uiManager?.HideSessionSummary();
+            uiManager?.UpdateSessionStatus(true, 0f);
+            Debug.Log("[ARContentManager] Explicit session start triggered from UI.");
+        }
+
+        private void HandleStopSession()
+        {
+            var logger = GetComponent<SessionLogger>() ?? FindFirstObjectByType<SessionLogger>();
+            var summary = logger?.EndCurrentSession();
+            uiManager?.UpdateSessionStatus(false, summary?.durationSeconds ?? 0f);
+            if (summary != null)
+            {
+                var scorer = GetComponent<AffectScorer>() ?? FindFirstObjectByType<AffectScorer>();
+                uiManager?.ShowSessionSummary(summary, scorer != null ? scorer.RenderFps : 60f);
+            }
+            Debug.Log("[ARContentManager] Explicit session stop triggered from UI.");
+        }
+
+        private void OnHardwareConnectionStateChanged(HardwareConnectionState oldState, HardwareConnectionState newState)
+        {
+            uiManager?.UpdateHardwareStatus(newState, hardwareBridge != null ? hardwareBridge.IsMock : true);
         }
 
         // ── Adaptation Controller Integration ────────────────────────────────────
-        /// <summary>
-        /// Called by AdaptationController when an adaptation action is triggered.
-        /// Subscribe in AdaptationController.cs via ARContentManager.ApplyAdaptation.
-        /// </summary>
-        public void ApplyAdaptation(AdaptationAction action)
+        public void ApplyAdaptation(AdaptationAction action, string triggeringBehavior = "ConfusionStruggle")
         {
             if (_task == null || _currentStepIndex >= _task.steps.Length) return;
 
             var step = _task.steps[_currentStepIndex];
-            Debug.Log($"[ARContentManager] Applying adaptation: {action} at step {step.id}");
+            Debug.Log($"[ARContentManager] Applying adaptation: {action} at step {step.id} (behavior={triggeringBehavior})");
+
+            if (CurrentCanonicalEvent != null)
+            {
+                CurrentCanonicalEvent.behavior = triggeringBehavior;
+                affectPredictor?.NotifyActualEventFired(triggeringBehavior, CurrentCanonicalEvent);
+            }
+
+            if (action != AdaptationAction.InjectCue)
+            {
+                uiManager?.ShowAdaptationBanner(action);
+            }
+
+            if (action == AdaptationAction.SlowPace || triggeringBehavior == "FrustrationDisengage")
+            {
+                hardwareBridge?.SetLED(LedIdentifier.Led2, LedState.On);
+            }
 
             switch (action)
             {
@@ -125,8 +256,12 @@ namespace A3R.ContentManager
             if (_currentStepIndex >= _task.steps.Length - 1)
             {
                 OnTaskComplete?.Invoke();
+                arGuidanceController?.OnTaskComplete();
+                uiManager?.ShowCompletionScreen(_task.steps.Length, Time.time - _sessionStartTime);
+                hardwareBridge?.ResetCircuit();
                 return;
             }
+            affectPredictor?.InvalidatePendingPrediction();
             _currentStepIndex++;
             HideAllAdaptationOverlays();
             DisplayCurrentStep();
@@ -135,8 +270,19 @@ namespace A3R.ContentManager
         public void PreviousStep()
         {
             if (_currentStepIndex <= 0) return;
+            affectPredictor?.InvalidatePendingPrediction();
             _currentStepIndex--;
             HideAllAdaptationOverlays();
+            DisplayCurrentStep();
+        }
+
+        public void RestartTask()
+        {
+            _currentStepIndex = 0;
+            _sessionStartTime = Time.time;
+            HideAllAdaptationOverlays();
+            uiManager?.HideCompletionScreen();
+            hardwareBridge?.ResetCircuit();
             DisplayCurrentStep();
         }
 
@@ -172,6 +318,21 @@ namespace A3R.ContentManager
             if (_task == null || _currentStepIndex >= _task.steps.Length) return;
 
             var step = _task.steps[_currentStepIndex];
+            FindFirstObjectByType<AffectScorer>()?.SetCurrentStepId(step.id);
+
+            string objId = !string.IsNullOrEmpty(step.highlight_component) ? step.highlight_component : "breadboard";
+            string pdi = !string.IsNullOrEmpty(step.ar_arrow_target) ? step.ar_arrow_target : "workbench_marker";
+            string wid = !string.IsNullOrEmpty(workerId) ? workerId : "learner_01";
+
+            CurrentCanonicalEvent = new CanonicalEvent(
+                sessionId: Guid.NewGuid().ToString("N"),
+                workerId: wid,
+                stepId: !string.IsNullOrEmpty(step.id) ? step.id : "step_unknown",
+                stepIndex: _currentStepIndex,
+                objectId: objId,
+                pdiTarget: pdi,
+                behavior: "NormalProgress"
+            );
 
             if (stepNumberText    != null) stepNumberText.text    = $"Step {step.step_number}/{_task.steps.Length}";
             if (stepTitleText     != null) stepTitleText.text     = step.title;
@@ -182,7 +343,24 @@ namespace A3R.ContentManager
                 stepDetailText.gameObject.SetActive(_slowPaceActive);
             }
 
-            // Update nav buttons
+            uiManager?.ShowStep(step, _currentStepIndex, _task.steps.Length);
+
+            if (hardwareBridge != null && hardwareBridge.IsConnected)
+            {
+                hardwareBridge.SendCommand(new HardwareCommand(
+                    HardwareCommandType.StepSync,
+                    LedIdentifier.Led1,
+                    LedState.Off,
+                    1000,
+                    step.id
+                ));
+            }
+
+            if (step.id == "verify_blink" && hardwareBridge != null)
+            {
+                hardwareBridge.BlinkLED(LedIdentifier.Led1, 1000);
+            }
+
             if (prevStepButton != null) prevStepButton.interactable = _currentStepIndex > 0;
             if (nextStepButton != null) nextStepButton.interactable = true;
 
@@ -205,6 +383,8 @@ namespace A3R.ContentManager
             if (hintPanel     != null) hintPanel.SetActive(false);
             if (arCueArrow    != null) arCueArrow.SetActive(false);
             if (highlightMarker != null) highlightMarker.SetActive(false);
+
+            arGuidanceController?.ResetToNormalGuidance();
         }
 
         // ── Adaptation Implementations ───────────────────────────────────────────
@@ -218,15 +398,23 @@ namespace A3R.ContentManager
         private void ApplyInjectCue(InstructionStep step)
         {
             _cueActive = true;
-            if (arCueArrow != null)
+            
+            var oldTutorial = UnityEngine.Object.FindFirstObjectByType<A3R.ARGuidance.A3R_ResistorTutorialController>();
+            if (oldTutorial != null)
             {
-                arCueArrow.SetActive(true);
-                // Arrow targeting is set up via component name lookup in the scene
-                // (matches to named child transforms in the content root)
-                PositionCueArrow(step.ar_arrow_target);
+                if (oldTutorial.CurrentState == A3R.ARGuidance.ResistorTutorialState.RESISTOR_TARGET)
+                    oldTutorial.TransitionToTarget();
+                else if (oldTutorial.CurrentState == A3R.ARGuidance.ResistorTutorialState.LED_TARGET)
+                    oldTutorial.TransitionToLedTarget();
+                else if (oldTutorial.CurrentState == A3R.ARGuidance.ResistorTutorialState.ESP32_TARGET)
+                    oldTutorial.TransitionToEsp32Target();
+                else if (oldTutorial.CurrentState == A3R.ARGuidance.ResistorTutorialState.WIRE1_TARGET)
+                    oldTutorial.TransitionToWire1Target();
+                else if (oldTutorial.CurrentState == A3R.ARGuidance.ResistorTutorialState.WIRE2_TARGET)
+                    oldTutorial.TransitionToWire2Target();
+                else if (oldTutorial.CurrentState == A3R.ARGuidance.ResistorTutorialState.WIRE3_TARGET)
+                    oldTutorial.TransitionToWire3Target();
             }
-            if (stepInstructionText != null && step.adaptation_hints != null)
-                stepInstructionText.text += "\n\n" + step.adaptation_hints.InjectCue;
         }
 
         private void ApplySlowPace(InstructionStep step)
@@ -255,40 +443,93 @@ namespace A3R.ContentManager
         private void PositionCueArrow(string targetName)
         {
             if (string.IsNullOrEmpty(targetName) || arCueArrow == null) return;
-            // Find a named child transform in the ContentRoot that matches the target
-            if (arImageTracker?.ContentRoot != null)
+            Transform root = _activeContentRoot ?? arImageTracker?.ContentRoot;
+            if (root != null)
             {
-                var target = arImageTracker.ContentRoot.Find(targetName);
+                string resolvedName = targetName;
+                if (arGuidanceController != null)
+                {
+                    resolvedName = arGuidanceController.GetTargetAlias(targetName);
+                }
+
+                var target = root.Find(resolvedName);
+                if (target == null) target = root.Find("TargetAnchors/" + resolvedName);
                 if (target != null)
                     arCueArrow.transform.position = target.position + Vector3.up * 0.05f;
             }
         }
 
-        // ── Marker Events ────────────────────────────────────────────────────────
+        // ── Marker & Placement Events ──────────────────────────────────────────
+        private void OnBreadboardPlaced(Transform root)
+        {
+            Transform tutorialVisuals = root.Find("TutorialVisuals") ?? root;
+            OnMarkerDetected(tutorialVisuals);
+        }
+
         private void OnMarkerDetected(Transform contentRoot)
         {
+            _activeContentRoot = contentRoot;
+            if (_currentStepIndex == 0 && stepTitleText != null)
+            {
+                stepTitleText.text = "BREADBOARD DETECTED \u2713";
+            }
             if (stepPanel != null) stepPanel.SetActive(true);
+            uiManager?.SetNoMarkerOverlayVisible(false);
+            arGuidanceController?.OnMarkerDetected(contentRoot);
             DisplayCurrentStep();
-            Debug.Log("[ARContentManager] Marker detected — showing AR content.");
+            Debug.Log("[ARContentManager] Marker detected -> showing AR content.");
         }
 
         private void OnMarkerLost()
         {
             if (stepPanel != null) stepPanel.SetActive(false);
             if (hintPanel != null) hintPanel.SetActive(false);
-            Debug.Log("[ARContentManager] Marker lost — hiding AR content.");
+            if (arCueArrow != null) arCueArrow.SetActive(false);
+            if (highlightMarker != null) highlightMarker.SetActive(false);
+            uiManager?.SetNoMarkerOverlayVisible(true);
+            arGuidanceController?.OnMarkerLost();
+            HideAllAdaptationOverlays();
+            Debug.Log("[ARContentManager] Marker lost -> hiding AR content.");
         }
 
         // ── Debug HUD ────────────────────────────────────────────────────────────
-        /// <summary>Called by AffectScorer to update the debug HUD with live affect scores.</summary>
         public void UpdateDebugHUD(float confusion, float frustration, float engagement, bool markerTracked)
         {
-            if (debugAffectText == null) return;
-            debugAffectText.text = $"Confusion:   {confusion:F3}\n" +
-                                   $"Frustration: {frustration:F3}\n" +
-                                   $"Engagement:  {engagement:F3}\n" +
-                                   $"Marker: {(markerTracked ? "TRACKED" : "LOST")}\n" +
-                                   $"Step: {_currentStepIndex + 1}/{TotalSteps}";
+            if (debugAffectText != null)
+            {
+                debugAffectText.text = $"Confusion:   {confusion:F3}\n" +
+                                       $"Frustration: {frustration:F3}\n" +
+                                       $"Engagement:  {engagement:F3}\n" +
+                                       $"Marker: {(markerTracked ? "TRACKED" : "LOST")}\n" +
+                                       $"Step: {_currentStepIndex + 1}/{TotalSteps}";
+            }
+
+            string predState = (affectPredictor != null && affectPredictor.HasPendingPrediction)
+                ? "ANTICIPATING"
+                : (affectPredictor != null ? affectPredictor.PredictionState : "NOMINAL");
+
+            var scorer = GetComponent<AffectScorer>() ?? FindFirstObjectByType<AffectScorer>();
+            var bridge = GetComponent<FaceLandmarkBridge>() ?? FindFirstObjectByType<FaceLandmarkBridge>();
+            var adapt = GetComponent<AdaptationController>() ?? FindFirstObjectByType<AdaptationController>();
+
+            float renderFps = scorer != null ? scorer.RenderFps : 60f;
+            float camFps = bridge != null ? bridge.CameraFps : 30f;
+            float mpFps = bridge != null ? bridge.MediaPipeFps : 5f;
+            string perception = bridge != null && bridge.GetCurrentLandmarks() != null
+                ? $"Active (478 pts, {bridge.LastInferenceLatencyMs:F1}ms)"
+                : (bridge != null ? bridge.Mode.ToString() : "N/A");
+            string temporal = adapt != null
+                ? (adapt.IsInElevatedState ? $"Elevated ({adapt.DwellTimer:F1}s/{adapt.DwellTimeRequired:F1}s)" : "Nominal")
+                : "Idle";
+            string adaptState = arGuidanceController != null ? arGuidanceController.CurrentState.ToString() : "Normal";
+
+            bool faceDetected = scorer != null && scorer.FaceDetected;
+            
+            uiManager?.UpdateComprehensiveTelemetry(
+                renderFps, camFps, mpFps,
+                perception,
+                confusion, frustration, engagement,
+                temporal, adaptState, predState, markerTracked, faceDetected);
         }
     }
 }
